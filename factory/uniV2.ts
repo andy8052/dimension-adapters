@@ -125,6 +125,9 @@ const configs: Record<string, Record<string, any>> = {
   "miaswap": {
     [CHAIN.ONUS]: { factory: '0xA5DA4dC244c7aD33a0D8a10Ed5d8cFf078E86Ef3' },
   },
+  "mimo": {
+    [CHAIN.IOTEX]: { factory: '0xda257cBe968202Dea212bBB65aB49f174Da58b9D', start: '2021-06-22', fees: 0.003, userFeesRatio: 1, revenueRatio: 0, protocolRevenueRatio: 0, holdersRevenueRatio: 0, allowReadPairs: true },
+  },
   "mistswap": {
     [CHAIN.SMARTBCH]: { factory: '0x6008247F53395E7be698249770aa1D2bfE265Ca0' },
   },
@@ -445,7 +448,7 @@ const configs: Record<string, Record<string, any>> = {
     [CHAIN.MEGAETH]: { factory: '0xC60940F182F7699522970517f6d753A560546937', start: '2026-02-05', userFeesRatio: 1, revenueRatio: 0 },
   },
   "daoaas-swap": {
-    [CHAIN.ENI]: { factory: '0x548C0E26CE90B333c07abb6d55546304D46d269d', start: '2025-06-01' },
+    [CHAIN.ENI]: { factory: '0x548C0E26CE90B333c07abb6d55546304D46d269d', start: '2025-06-01', userFeesRatio: 1, revenueRatio: 0.5, protocolRevenueRatio: 0.5 },
   },
   "mute.io": {
     [CHAIN.ERA]: { factory: '0x40be1cba6c5b47cdf9da7f963b6f761f4c60627d', start: 1679529600, userFeesRatio: 1, revenueRatio: 0.2, protocolRevenueRatio: 0.2 },
@@ -750,6 +753,15 @@ const configs: Record<string, Record<string, any>> = {
   "zealousswap": {
     [CHAIN.KASPLEX]: { factory: '0x98Bb580A77eE329796a79aBd05c6D2F2b3D5E1bD', start: '2025-09-26', fees: 0.003, userFeesRatio: 1, revenueRatio: 1 / 6, swapEvent: zealousSwapEvent },
     [CHAIN.IGRA]: { factory: '0x98Bb580A77eE329796a79aBd05c6D2F2b3D5E1bD', start: '2026-04-03', fees: 0.003, userFeesRatio: 1, revenueRatio: 1 / 6, swapEvent: zealousSwapEvent },
+  },
+  "qie-dex": {
+    [CHAIN.QIEV3]: { factory: "0x8E23128a5511223bE6c0d64106e2D4508C08398C", start: '2025-08-05', fees: 0.003, revenueRatio: 0, }
+  },
+  "wswap": {
+    [CHAIN.WCHAIN]: { factory: "0x2A44f013aD7D6a1083d8F499605Cf1148fbaCE31", start: '2025-06-19', fees: 0.003, revenueRatio: 0, },
+    [CHAIN.ETHEREUM]: { factory: "0x46B0B17Bb1f637CcfFA9fCc34bD591E3A0fF58F9", start: '2026-02-22', fees: 0.003, revenueRatio: 0, },
+    //No bsc pools yet
+    //[CHAIN.BSC]: { factory: "0x5105989c863e801fC610396529BE9f2A6B95bF0A", start: '2026-05-20', fees: 0.003, revenueRatio: 0, }
   }
 }
 
@@ -980,6 +992,14 @@ const methodologyMap: Record<string, any> = {
     Revenue: 'No revenue',
     SupplySideRevenue: 'Swap fees distributed to LPs.',
   },
+  "mimo": {
+    UserFees: "Users pay 0.30% fees on each swap.",
+    Fees: "Swap fees paid by users.",
+    Revenue: "Mimo Exchange does not collect protocol revenue.",
+    ProtocolRevenue: "Mimo Exchange does not collect protocol revenue.",
+    SupplySideRevenue: "Swap fees are distributed to liquidity providers.",
+    HoldersRevenue: "Mimo Exchange does not distribute swap fees to token holders.",
+  },
   "zkswap": {
     Fees: "Total swap fees paided by users.",
     Revenue: "Revenue collected from 100% swap fees.",
@@ -1121,6 +1141,7 @@ const deadFromMap: Record<string, string> = {
   "metavault-amm-v2": '2025-06-04',
   "beamswap": "2025-08-12",
   "wagyuswap": "2026-03-16",
+  "zircon-gamma": '2023-03-26',
 }
 
 // Fees-specific configs (same protocol name may have different config for fees vs dexs)
@@ -1636,6 +1657,7 @@ function buildSubgraphAdapter(config: SubgraphProtocolConfig): SimpleAdapter {
 const protocols: Record<string, any> = {}
 for (const [name, config] of Object.entries(configs)) {
   const adapter = uniV2Exports(config, optionsMap[name])
+  adapter.skipBreakdownValidation = true // allow old protocols return only fees
   if (methodologyMap[name]) adapter.methodology = methodologyMap[name]
   if (deadFromMap[name]) adapter.deadFrom = deadFromMap[name]
   protocols[name] = adapter
@@ -1650,6 +1672,7 @@ for (const [name, config] of Object.entries(subgraphConfigs)) {
 const feesProtocols: Record<string, any> = {}
 for (const [name, config] of Object.entries(feesConfigs)) {
   const adapter = uniV2Exports(config)
+  adapter.skipBreakdownValidation = true // allow old protocols return only fees
   if (feesMethodologyMap[name]) adapter.methodology = feesMethodologyMap[name]
   feesProtocols[name] = adapter
 }

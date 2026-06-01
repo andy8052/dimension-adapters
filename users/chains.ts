@@ -1,6 +1,7 @@
 import { queryAllium } from "../helpers/allium";
 import fetchURL, { httpGet } from "../utils/fetchURL";
 import { CHAIN } from "../helpers/chains";
+import { blockscoutStatsExports } from "./utils/blockscoutStats";
 
 async function solanaUsers(start: number, end: number) {
     const queryId = await queryAllium(`select count(DISTINCT signer) as usercount, count(txn_id) as txcount from solana.raw.transactions where BLOCK_TIMESTAMP > TO_TIMESTAMP_NTZ(${start}) AND BLOCK_TIMESTAMP < TO_TIMESTAMP_NTZ(${end}) and success=true and is_voting=false`)
@@ -91,6 +92,19 @@ const alliumChainMap: Record<string, string> = {
     bsc: CHAIN.BSC,
     megaeth: CHAIN.MEGAETH,
     katana: CHAIN.KATANA,
+    abstract: CHAIN.ABSTRACT,
+    linea: CHAIN.LINEA,
+    ronin: CHAIN.RONIN,
+    sonic: CHAIN.SONIC,
+    mantle: CHAIN.MANTLE,
+    berachain: CHAIN.BERACHAIN,
+    blast: CHAIN.BLAST,
+    monad: CHAIN.MONAD,
+    plasma: CHAIN.PLASMA,
+    sei: CHAIN.SEI,
+    core: CHAIN.CORE,
+    tempo: CHAIN.TEMPO,
+    stable: CHAIN.STABLE,
 }
 
 const alliumExports = Object.keys(alliumChainMap).map(c => ({ name: c, id: c, getUsers: getAlliumUsersChain(c), getNewUsers: getAlliumNewUsersChain(c), chain: alliumChainMap[c], type: 'chain' }))
@@ -134,10 +148,22 @@ export default [
         id: "algorand"
     },
     {
+        name: "doge",
+        chain: CHAIN.DOGE,
+        getUsers: coinmetricsData("doge"),
+        id: "doge"
+    },
+    {
         name: "bch",
         chain: CHAIN.BITCOIN_CASH,
         getUsers: coinmetricsData("bch"),
         id: "bch"
+    },
+    {
+        name: "dash",
+        chain: CHAIN.DASH,
+        getUsers: coinmetricsData("dash"),
+        id: "dash"
     },
     // {
     //     name: "bsv",
@@ -145,10 +171,34 @@ export default [
     //     getUsers: coinmetricsData("bsv"),
     //     id: "bsv"
     // },
+    {
+        name: "stellar",
+        chain: CHAIN.STELLAR,
+        getUsers: coinmetricsData("xlm"),
+        id: "stellar"
+    },
+    {
+        name: "xrpl",
+        chain: CHAIN.RIPPLE,
+        getUsers: coinmetricsData("xrp"),
+        id: "xrpl"
+    },
+    {
+        name: "icp",
+        chain: CHAIN.ICP,
+        getUsers: coinmetricsData("icp"),
+        id: "icp"
+    },
+    {
+        name: "zcash",
+        chain: CHAIN.ZEC,
+        getUsers: coinmetricsData("zec"),
+        id: "zcash"
+    },
 ].map(chain => ({
     name: chain.name,
     id: (chain as any).id ?? `chain#${chain.name}`,
     type: "chain",
     chain: chain.chain,
     getUsers: (start: number, end: number) => chain.getUsers(start, end).then(u => typeof u === "object" ? u : ({ all: { users: u } })),
-} as ChainUserConfig)).concat(alliumExports)
+} as ChainUserConfig)).concat(alliumExports, blockscoutStatsExports)

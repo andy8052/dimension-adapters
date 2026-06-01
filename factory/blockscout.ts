@@ -73,7 +73,6 @@ const protocolChainMap: Record<string, string> = {
   "molten-network": CHAIN.MOLTEN_NETWORK,
   "syndicate": CHAIN.SYNDICATE,
   "xchain": CHAIN.XCHAIN,
-  "taiko": CHAIN.TAIKO,
   "capx": CHAIN.CAPX,
   "rari": CHAIN.RARI,
   "shibarium": CHAIN.SHIBARIUM,
@@ -119,6 +118,13 @@ const protocolChainMap: Record<string, string> = {
   "coti": CHAIN.COTI,
   "mezo": CHAIN.MEZO,
   "world-mobile": CHAIN.WORLD_MOBILE,
+  "rise": CHAIN.RISE,
+  "citrea": CHAIN.CITREA,
+  "moca": CHAIN.MOCA,
+  "fluent": CHAIN.FLUENT,
+  "lukso": CHAIN.LUKSO,
+  "kasplex": CHAIN.KASPLEX,
+  "gatelayer": CHAIN.GATE_LAYER,
 }
 
 const deadFromMap: Record<string, string> = {

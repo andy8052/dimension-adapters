@@ -10,6 +10,8 @@ import { Balances } from "@defillama/sdk";
 import { findClosest } from "./utils/findClosest";
 import { CHAIN } from "./chains";
 
+export type HyperliquidMarket = "all" | "hip3" | "hip4";
+
 /**
  * Fetches builder code revenue directly from HyperLiquid's LZ4 compressed CSV files
  *
@@ -25,20 +27,26 @@ import { CHAIN } from "./chains";
 // hl indexer only supports data from this date
 export const LLAMA_HL_INDEXER_FROM_TIME = 1754006400;
 export const LLAMA_HL_INDEXER_SNAPSHOTS_FROM_TIME = 1776211200;
+export const LLAMA_HL_INDEXER_META_SNAPSHOTS_FROM_TIME = 1779753600; // from this date, indexer start to store snapshots of meta assets
+export const HYPERLIQUID_HIP3_DEXS = ['xyz', 'vntl', 'flx', 'km', 'hyna', 'cash'];
 export const fetchBuilderCodeRevenue = async ({
   options,
   builder_address,
+  market = "all",
 }: {
   options: FetchOptions;
   builder_address: string;
+  market?: HyperliquidMarket;
 }) => {
   const startTimestamp = options.startOfDay;
   const dailyFees = options.createBalances();
   const dailyVolume = options.createBalances();
+  const isHIP3Market = market === "hip3";
+  const isHIP4Market = market === "hip4";
 
   // try with llama hl indexer
   const endpoint = getEnv("LLAMA_HL_INDEXER");
-  if (startTimestamp >= LLAMA_HL_INDEXER_FROM_TIME && endpoint) {
+  if (market === "all" && startTimestamp >= LLAMA_HL_INDEXER_FROM_TIME && endpoint) {
     const dateString = new Date(startTimestamp * 1000)
       .toISOString()
       .split("T")[0]
@@ -114,11 +122,11 @@ export const fetchBuilderCodeRevenue = async ({
       .split("\n")
       .filter((line) => line.trim().length > 0);
     const headers = lines[0].split(",").map((h: string) => h.trim());
-    const builderFeeIndex = headers.findIndex(
-      (h: string) => h === "builder_fee",
-    );
+    const builderFeeIndex = headers.findIndex((h: string) => h === "builder_fee");
+    const coinIndex = headers.findIndex((h: string) => h === "coin");
     const pxIndex = headers.findIndex((h: string) => h === "px");
     const szIndex = headers.findIndex((h: string) => h === "sz");
+    if ((isHIP3Market || isHIP4Market) && coinIndex === -1) throw new Error(`missing coin column for ${market} builder fills`);
 
     let totalBuilderFees = 0;
     let totalVolume = 0;
@@ -129,6 +137,16 @@ export const fetchBuilderCodeRevenue = async ({
         const values = line.split(",");
 
         if (values.length >= Math.max(builderFeeIndex, pxIndex, szIndex) + 1) {
+          const coin = values[coinIndex]?.trim();
+
+          // Source: asset ID docs; HIP-3 perps use {dex}:{coin}, HIP-4 outcomes use #<encoding>.
+          if (isHIP3Market && !coin?.includes(":")) {
+            continue;
+          }
+          if (isHIP4Market && !/^#\d+$/.test(coin)) {
+            continue;
+          }
+
           const builderFee = parseFloat(values[builderFeeIndex]) || 0;
           const px = parseFloat(values[pxIndex]) || 0;
           const sz = parseFloat(values[szIndex]) || 0;
@@ -209,7 +227,7 @@ export const CoinGeckoMaps: Record<string, string> = {
   USDA: "angle-usd",
 };
 
-export async function getUnitSeployedCoins(): Promise<Record<string, string>> {
+export async function getUnitDeployedCoins(): Promise<Record<string, string>> {
   const coins: Record<string, string> = {};
 
   const response = await httpPost("https://api-ui.hyperliquid.xyz/info", {
@@ -247,6 +265,7 @@ interface QueryIndexerResult {
   // priority fees
   dailyPriorityFeesUsd: Balances;
 
+  // NOTE: deprecated this field
   currentPerpOpenInterest?: number;
 
   hip3Deployers: Record<string, Hip3DeployerMetrics>;
@@ -282,7 +301,7 @@ export async function queryHyperliquidIndexer(
     .replace("-", "");
   const response = await _requestIndexer(endpoint, dateString);
 
-  const coinsDeployedByUnit = await getUnitSeployedCoins();
+  const coinsDeployedByUnit = await getUnitDeployedCoins();
 
   const dailyPerpVolume = options.createBalances();
   const dailySpotVolume = options.createBalances();
@@ -390,6 +409,66 @@ export async function queryHyperliquidIndexer(
     currentPerpOpenInterest,
     hip3Deployers,
   };
+}
+
+interface QueryHyperliquidIndexerOpenInterestResult {
+  totalOpenInterest: number; // include default perps + all HIP-3 perps
+  defaultPerpsOpenInterest: number; // idefault perps only
+  hip3Deployers: Record<string, number>; // HIP-3 perps breakdown
+}
+
+export async function queryHyperliquidIndexerOpenInterest(options: FetchOptions): Promise<QueryHyperliquidIndexerOpenInterestResult> {
+  const result: QueryHyperliquidIndexerOpenInterestResult = {
+    totalOpenInterest: 0,
+    defaultPerpsOpenInterest: 0,
+    hip3Deployers: {},
+  }
+
+  // default perps
+  const metaAndAssetCtxs = await getMetaAndAssetCtxs(options);
+  if (metaAndAssetCtxs) {
+    for (const item of metaAndAssetCtxs[1]) {
+      result.totalOpenInterest += Number(item.openInterest) * Number(item.markPx);
+      result.defaultPerpsOpenInterest += Number(item.openInterest) * Number(item.markPx);
+    }
+  }
+
+  // HIP-3 markets
+  for (const dex of HYPERLIQUID_HIP3_DEXS) {
+    const metaAndAssetCtxsDex = await getMetaAndAssetCtxs(options, dex);
+    if (metaAndAssetCtxsDex) {
+      result.hip3Deployers[dex] = 0;
+      for (const item of metaAndAssetCtxsDex[1]) {
+        result.totalOpenInterest += Number(item.openInterest) * Number(item.markPx);
+        result.hip3Deployers[dex] += Number(item.openInterest) * Number(item.markPx);
+      }
+    }
+  }
+  
+  return result;
+}
+
+async function getMetaAndAssetCtxs(options: FetchOptions, dexId?: string): Promise<any> {
+  try {
+    const endpoint = getEnv("LLAMA_HL_INDEXER");
+    const extraKey = dexId ? `-${dexId}` : '';
+    const urlFull = `${endpoint}/v1/data/snapshot/metaAndAssetCtxs${extraKey}/${options.startOfDay}`;
+    const res = await httpGet(urlFull);
+    if (res.data) return res.data;
+    else throw Error(`can not get data from hl indexer, url: ${urlFull}`);
+  } catch (e: any) {
+    const TWO_DAYS = 48 * 3600;
+    const current = Math.floor(new Date().getTime() / 1000);
+    if (options.startOfDay >= current - TWO_DAYS) {
+      const data = await httpPost("https://api.hyperliquid.xyz/info", {
+        type: "metaAndAssetCtxs",
+        dex: dexId ? dexId : undefined,
+      });
+      return data;
+    }
+  }
+
+  return null;
 }
 
 interface QueryHypurrscanApiResult {
@@ -540,10 +619,11 @@ export const exportHIP3DeployerAdapter = (
 
 export const exportBuilderAdapter = (
   builderAddresses: Array<string>,
-  props: { start?: string; deadFrom?: string; methodology?: any; extraReturnFields?: Record<string, any>, breakdownFees?: boolean },
+  props: { start?: string; deadFrom?: string; methodology?: any; extraReturnFields?: Record<string, any>, breakdownFees?: boolean, market?: HyperliquidMarket },
 ) => {
   const extraFields = props.extraReturnFields || {};
   const startDate = props.start ? props.start : "2025-08-01";
+  const market = props.market || "all";
   const adapter: SimpleAdapter = {
     version: 1,
     doublecounted: true, // all metrics are double-counted to hyperliquid
@@ -560,6 +640,7 @@ export const exportBuilderAdapter = (
             const result = await fetchBuilderCodeRevenue({
               options,
               builder_address: address,
+              market,
             });
             dailyVolume.addBalances(result.dailyVolume);
             dailyFees.addBalances(result.dailyFees, props.breakdownFees ? 'Hyperliquid Builder Code Fees' : undefined);
@@ -580,6 +661,24 @@ export const exportBuilderAdapter = (
     },
     methodology: props.methodology
       ? props.methodology
+      : market === "hip3"
+      ? {
+          Volume:
+            "Total volume from users trading Hyperliquid HIP-3 builder-deployed perpetual markets.",
+          Fees: "Builder code revenue from Hyperliquid HIP-3 builder-deployed perpetual trades.",
+          Revenue: "Builder code revenue from Hyperliquid HIP-3 builder-deployed perpetual trades.",
+          ProtocolRevenue:
+            "Builder code revenue from Hyperliquid HIP-3 builder-deployed perpetual trades.",
+        }
+      : market === "hip4"
+      ? {
+          Volume:
+            "Total volume from users trading Hyperliquid HIP-4 outcome markets.",
+          Fees: "Builder code revenue from Hyperliquid HIP-4 outcome-market trades.",
+          Revenue: "Builder code revenue from Hyperliquid HIP-4 outcome-market trades.",
+          ProtocolRevenue:
+            "Builder code revenue from Hyperliquid HIP-4 outcome-market trades.",
+        }
       : {
           Volume:
             " Total volume from users were settled to Hyperliquid Perps Trades.",
